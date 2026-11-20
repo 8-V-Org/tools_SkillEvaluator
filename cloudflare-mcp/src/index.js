@@ -67,6 +67,41 @@ export class SkillEvaluatorSandbox extends DurableObject {
     if (this.env.OPENAI_API_KEY) envArgs.push(`OPENAI_API_KEY=${this.env.OPENAI_API_KEY}`);
     if (this.env.ANTHROPIC_API_KEY) envArgs.push(`ANTHROPIC_API_KEY=${this.env.ANTHROPIC_API_KEY}`);
 
+    if (this.env.CF_AIG_TOKEN && !this.env.NVIDIA_API_KEY && !this.env.OPENAI_API_KEY) {
+      const aigBase = "https://gateway.ai.cloudflare.com/v1/54025afb4df4757292bd15927cb84b73/nexus-ai/openai";
+      const proxyScript = [
+        "import http.server, urllib.request, urllib.error, os",
+        "BASE = os.environ['AIG_BASE']",
+        "TOK = os.environ['CF_AIG_TOKEN']",
+        "class H(http.server.BaseHTTPRequestHandler):",
+        "  def do_POST(self):",
+        "    ln = int(self.headers.get('Content-Length', 0))",
+        "    body = self.rfile.read(ln)",
+        "    req = urllib.request.Request(BASE + self.path, data=body, method='POST', headers={'Content-Type': self.headers.get('Content-Type', 'application/json'), 'cf-aig-authorization': 'Bearer ' + TOK, 'User-Agent': 'skillevaluator-aig/1.0'})",
+        "    try:",
+        "      with urllib.request.urlopen(req, timeout=120) as r:",
+        "        data = r.read(); self.send_response(r.status); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(data)",
+        "    except urllib.error.HTTPError as e:",
+        "      data = e.read(); self.send_response(e.code); self.send_header('Content-Type', 'application/json'); self.end_headers(); self.wfile.write(data)",
+        "  def log_message(self, *a): pass",
+        "http.server.ThreadingHTTPServer(('127.0.0.1', 18787), H).serve_forever()"
+      ].join("\n");
+      await this.files.writeFile("/tmp/aig_proxy.py", proxyScript);
+      await this.container.exec([
+        "sh",
+        "-c",
+        `pgrep -f aig_proxy.py >/dev/null || (AIG_BASE='${aigBase}' CF_AIG_TOKEN='${this.env.CF_AIG_TOKEN}' nohup python3 /tmp/aig_proxy.py >/tmp/aig_proxy.log 2>&1 & sleep 0.5)`
+      ]);
+      envArgs.push(
+        "SKILL_EVAL_LLM_PROVIDER=openai-compatible",
+        "SKILL_EVAL_LLM_BASE_URL=http://127.0.0.1:18787",
+        "SKILL_EVAL_LLM_API_KEY=aig-byok",
+        "SKILL_EVAL_LLM_MODEL=gpt-4o-mini",
+        "SKILL_EVAL_EMBEDDING_PROVIDER=openai-compatible",
+        "SKILL_EVAL_EMBEDDING_MODEL=text-embedding-3-small"
+      );
+    }
+
     const cmd = [
       ...(envArgs.length ? ["env", ...envArgs] : []),
       "skillevaluator",
