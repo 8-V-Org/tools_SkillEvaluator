@@ -1,0 +1,32 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mcp-tools-skillevaluator",
+  "main": "src/index.js",
+  "compatibility_date": "2026-10-13",
+  "compatibility_flags": ["nodejs_compat"],
+  "containers": [
+    {
+      "class_name": "SkillEvaluatorSandbox",
+      "scheduling_policy": "durable_object",
+      "images": {
+        "base": {
+          "dockerfile": "./Dockerfile"
+        }
+      }
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      {
+        "class_name": "SkillEvaluatorSandbox",
+        "name": "SANDBOX"
+      }
+    ]
+  },
+  "exports": {
+    "SkillEvaluatorSandbox": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  }
+}
